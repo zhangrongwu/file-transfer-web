@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件传输</title>
+    <link rel="stylesheet" href="src/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>文件传输</h1>
+        </header>
+        
+        <main>
+            <div class="file-upload-section">
+                <input type="file" id="fileInput" class="file-input" />
+                <label for="fileInput" class="file-input-label">
+                    选择文件
+                </label>
+                <div id="fileInfo" class="file-info"></div>
+            </div>
+
+            <div class="qr-section">
+                <div class="qr-controls">
+                    <button id="startTransfer" class="button" disabled>开始传输</button>
+                    <button id="pauseTransfer" class="button" disabled>暂停</button>
+                    <div class="speed-control">
+                        <label for="speedSelect">切换速度：</label>
+                        <select id="speedSelect" disabled>
+                            <option value="1000">快速 (1秒)</option>
+                            <option value="2000" selected>标准 (2秒)</option>
+                            <option value="3000">慢速 (3秒)</option>
+                            <option value="5000">超慢 (5秒)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="qr-display">
+                    <div id="qrCode"></div>
+                    <div id="transferStatus" class="transfer-status"></div>
+                </div>
+
+                <div class="chunk-navigation" style="display: none;">
+                    <button id="prevChunk" class="button">上一块</button>
+                    <span id="chunkInfo"></span>
+                    <button id="nextChunk" class="button">下一块</button>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="src/js/qr-transfer.js"></script>
+    <script src="src/js/main.js"></script>
+</body>
+</html>

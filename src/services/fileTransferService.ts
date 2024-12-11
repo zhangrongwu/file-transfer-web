@@ -2,15 +2,15 @@ import { createHash } from 'crypto';
 
 interface FileHeader {
   name: string;
-  size: number;
-  hash: string;
-  chunks: number;
+  total_chunks: number;  // 与 Flutter 版本保持一致
+  hash?: string;
 }
 
 interface ChunkData {
   index: number;
   data: string;
-  total: number;
+  total_chunks: number;  // 与 Flutter 版本保持一致
+  name?: string;
 }
 
 export class FileTransferService {
@@ -21,7 +21,7 @@ export class FileTransferService {
   static parseHeader(data: string): FileHeader {
     try {
       const header = JSON.parse(data) as FileHeader;
-      if (!header.name || !header.size || !header.hash || !header.chunks) {
+      if (!header.name || !header.total_chunks) {
         throw new Error('Invalid header format');
       }
       return header;
@@ -42,9 +42,8 @@ export class FileTransferService {
     // 文件头信息
     const header: FileHeader = {
       name: file.name,
-      size: file.size,
+      total_chunks: Math.ceil(file.size / this.CHUNK_SIZE),
       hash: fileHash,
-      chunks: Math.ceil(file.size / this.CHUNK_SIZE),
     };
     chunks.push(JSON.stringify(header));
 
@@ -54,7 +53,8 @@ export class FileTransferService {
       const chunkData: ChunkData = {
         index: Math.floor(i / this.CHUNK_SIZE),
         data: this.arrayBufferToBase64(chunk),
-        total: Math.ceil(uint8Array.length / this.CHUNK_SIZE)
+        total_chunks: Math.ceil(uint8Array.length / this.CHUNK_SIZE),
+        name: file.name,
       };
       chunks.push(JSON.stringify(chunkData));
     }
@@ -63,18 +63,31 @@ export class FileTransferService {
   }
 
   // 从二维码数据块重建文件
-  static async qrChunksToFile(chunks: string[], fileName: string): Promise<File> {
+  static async qrChunksToFile(chunks: string[], fileName?: string): Promise<File> {
     if (chunks.length === 0) {
       throw new Error('No chunks provided');
     }
 
     // 解析文件头
-    const header = JSON.parse(chunks[0]) as FileHeader;
-    const expectedChunks = header.chunks;
+    const headerChunk = chunks.find(chunk => {
+      const parsed = JSON.parse(chunk);
+      return parsed.total_chunks && parsed.name;
+    });
+
+    if (!headerChunk) {
+      throw new Error('No valid file header found');
+    }
+
+    const header = JSON.parse(headerChunk) as FileHeader;
+    const expectedChunks = header.total_chunks;
     const expectedHash = header.hash;
+    const finalFileName = fileName || header.name;
 
     // 解析数据块
-    const dataChunks = chunks.slice(1).sort((a, b) => {
+    const dataChunks = chunks.filter(chunk => {
+      const parsed = JSON.parse(chunk);
+      return parsed.index !== undefined && parsed.data;
+    }).sort((a, b) => {
       const chunkA = JSON.parse(a) as ChunkData;
       const chunkB = JSON.parse(b) as ChunkData;
       return chunkA.index - chunkB.index;
@@ -95,13 +108,15 @@ export class FileTransferService {
     const uint8Array = new Uint8Array(combinedBuffer);
 
     // 验证文件完整性
-    const actualHash = await this.calculateFileHash(uint8Array);
-    if (actualHash !== expectedHash) {
-      throw new Error('File integrity check failed');
+    if (expectedHash) {
+      const actualHash = await this.calculateFileHash(uint8Array);
+      if (actualHash !== expectedHash) {
+        throw new Error('File integrity check failed');
+      }
     }
 
     // 创建文件
-    return new File([uint8Array], fileName, { type: 'application/octet-stream' });
+    return new File([uint8Array], finalFileName, { type: 'application/octet-stream' });
   }
 
   // 计算文件哈希值（使用 Web Crypto API）
