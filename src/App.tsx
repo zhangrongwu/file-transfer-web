@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import QRCode from 'qrcode.react';
 import { FileTransferService } from './services/fileTransferService';
+import './css/style.css';
 
 const GradientBackground: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="min-h-screen bg-gradient-to-br from-[#6a11cb] via-[#2575fc] to-[#4ecdc4] flex items-center justify-center p-4 overflow-hidden">
@@ -67,190 +68,176 @@ const CinematicQRCarousel: React.FC<{
 };
 
 const App: React.FC = () => {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [qrChunks, setQRChunks] = useState<string[]>([]);
-  const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
-  const [receivedChunks, setReceivedChunks] = useState<string[]>([]);
-  const [isTransmitting, setIsTransmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
+  const [file, setFile] = useState<File | null>(null);
+  const [chunks, setChunks] = useState<string[]>([]);
+  const [currentChunkIndex, setCurrentChunkIndex] = useState<number>(0);
+  const [transferStatus, setTransferStatus] = useState<string>('');
+  const [isTransferring, setIsTransferring] = useState<boolean>(false);
+  const [speed, setSpeed] = useState<number>(2000);
+  const transferInterval = useRef<NodeJS.Timeout | null>(null);
 
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const startDynamicQRTransmission = () => {
-    if (qrChunks.length === 0) {
-      setError('请先选择文件');
-      return;
-    }
-
-    setIsTransmitting(true);
-    setCurrentChunkIndex(0);
-    setProgress(0);
-
-    intervalRef.current = setInterval(() => {
-      setCurrentChunkIndex(prevIndex => {
-        const nextIndex = (prevIndex + 1) % qrChunks.length;
-        
-        setProgress(Math.round((nextIndex / qrChunks.length) * 100));
-
-        if (nextIndex === 0) {
-          stopDynamicQRTransmission();
-        }
-
-        return nextIndex;
-      });
-    }, 1000); 
-  };
-
-  const stopDynamicQRTransmission = () => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-      setIsTransmitting(false);
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      setTransferStatus('');
+      setCurrentChunkIndex(0);
+      setChunks([]);
+      setIsTransferring(false);
     }
   };
 
-  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const startTransfer = async () => {
+    if (!file) return;
     
-    if (file) {
-      try {
-        if (file.size > 5 * 1024 * 1024) {
-          setError('文件过大，请选择小于 5MB 的文件');
-          return;
-        }
-
-        const chunks = await FileTransferService.fileToQRChunks(file);
-        setSelectedFile(file);
-        setQRChunks(chunks);
-        setCurrentChunkIndex(0);
-        setError(null);
-        
-        startDynamicQRTransmission();
-      } catch (error) {
-        console.error('文件处理错误:', error);
-        setError(error instanceof Error ? error.message : '文件处理失败');
-      }
-    }
-  };
-
-  const reconstructFile = async () => {
     try {
-      if (receivedChunks.length === 0) {
-        setError('请先接收文件分块');
-        return;
-      }
-
-      const reconstructedFile = await FileTransferService.qrChunksToFile(
-        receivedChunks, 
-        selectedFile?.name || 'downloaded_file'
-      );
+      const newChunks = await FileTransferService.fileToQRChunks(file);
+      setChunks(newChunks);
+      setIsTransferring(true);
+      setTransferStatus('传输中...');
       
-      const url = URL.createObjectURL(reconstructedFile);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = reconstructedFile.name;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      setReceivedChunks([]);
-      setError(null);
+      transferInterval.current = setInterval(() => {
+        setCurrentChunkIndex(prev => (prev + 1) % newChunks.length);
+      }, speed);
     } catch (error) {
-      console.error('文件重组错误:', error);
-      setError(error instanceof Error ? error.message : '文件重组失败');
+      setTransferStatus('传输准备失败');
+      console.error(error);
     }
   };
+
+  const pauseTransfer = () => {
+    if (transferInterval.current) {
+      clearInterval(transferInterval.current);
+      transferInterval.current = null;
+    }
+    setIsTransferring(false);
+    setTransferStatus('已暂停');
+  };
+
+  const handleSpeedChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const newSpeed = parseInt(event.target.value);
+    setSpeed(newSpeed);
+    
+    if (isTransferring && transferInterval.current) {
+      clearInterval(transferInterval.current);
+      transferInterval.current = setInterval(() => {
+        setCurrentChunkIndex(prev => (prev + 1) % chunks.length);
+      }, newSpeed);
+    }
+  };
+
+  const prevChunk = () => {
+    setCurrentChunkIndex(prev => (prev - 1 + chunks.length) % chunks.length);
+  };
+
+  const nextChunk = () => {
+    setCurrentChunkIndex(prev => (prev + 1) % chunks.length);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (transferInterval.current) {
+        clearInterval(transferInterval.current);
+      }
+    };
+  }, []);
 
   return (
     <GradientBackground>
-      <div className="bg-white/90 backdrop-blur-lg shadow-2xl rounded-2xl p-8 space-y-6 relative overflow-hidden">
-        <div className="absolute -top-10 -right-10 w-32 h-32 bg-purple-500/20 rounded-full blur-2xl"></div>
-        <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-blue-500/20 rounded-full blur-2xl"></div>
-
-        <div className="text-center">
-          <h1 className="text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-blue-500">
-            动态二维码文件传输
-          </h1>
-          <p className="text-sm text-gray-500 mt-2">
-            安全、快速、简单的文件共享方案
-          </p>
-        </div>
-
-        {error && (
-          <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
-            <p className="text-red-700">{error}</p>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          <input 
-            type="file" 
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full py-3 bg-gradient-to-r from-purple-600 to-blue-500 text-white rounded-lg 
-            hover:from-purple-700 hover:to-blue-600 transition-all duration-300 
-            flex items-center justify-center space-x-2 transform hover:scale-[1.02]"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            <span>选择文件</span>
-          </button>
-
-          {selectedFile && (
-            <div className="text-center text-sm text-gray-600 bg-gray-100 rounded-lg p-2">
-              已选择: {selectedFile.name} ({(selectedFile.size / 1024).toFixed(2)} KB)
+      <div className="container">
+        <header>
+          <h1>文件传输</h1>
+          <p className="text-lg text-gray-600">通过二维码安全传输文件</p>
+        </header>
+        
+        <main>
+          <div className="file-upload-section">
+            <input
+              type="file"
+              id="fileInput"
+              className="file-input"
+              onChange={handleFileSelect}
+            />
+            <label htmlFor="fileInput" className="file-input-label">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 inline-block mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              选择文件
+            </label>
+            <div className="file-info">
+              {file ? (
+                <p>已选择：{file.name} ({(file.size / 1024).toFixed(2)} KB)</p>
+              ) : (
+                <p>未选择文件</p>
+              )}
             </div>
-          )}
-        </div>
+          </div>
 
-        {selectedFile && (
-          <CinematicQRCarousel 
-            chunks={qrChunks} 
-            currentIndex={currentChunkIndex} 
-            progress={progress} 
-          />
-        )}
+          <div className="qr-section">
+            <div className="qr-controls">
+              <button
+                onClick={startTransfer}
+                disabled={!file || isTransferring}
+                className="button start-button"
+              >
+                开始传输
+              </button>
+              <button
+                onClick={pauseTransfer}
+                disabled={!isTransferring}
+                className="button pause-button"
+              >
+                暂停
+              </button>
+              <div className="speed-control">
+                <label htmlFor="speedSelect">切换速度</label>
+                <select
+                  id="speedSelect"
+                  value={speed}
+                  onChange={handleSpeedChange}
+                  disabled={!file}
+                >
+                  <option value="1000">快速 (1秒)</option>
+                  <option value="2000">标准 (2秒)</option>
+                  <option value="3000">慢速 (3秒)</option>
+                  <option value="5000">超慢 (5秒)</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="qr-display">
+              {chunks.length > 0 ? (
+                <div className="qr-code">
+                  <QRCode
+                    value={chunks[currentChunkIndex]}
+                    size={256}
+                    level="L"
+                  />
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <p>选择文件后开始传输</p>
+                </div>
+              )}
+              <div className="transfer-status">
+                {transferStatus}
+                {chunks.length > 0 && (
+                  <p>第 {currentChunkIndex + 1} / {chunks.length} 块</p>
+                )}
+              </div>
+            </div>
 
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold text-gray-700">接收文件</h2>
-          <textarea 
-            placeholder="扫描二维码后，粘贴二维码内容到这里"
-            rows={5}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            onChange={(e) => {
-              try {
-                const chunk = JSON.parse(e.target.value);
-                setReceivedChunks(prev => {
-                  if (!prev.some(existingChunk => 
-                    JSON.parse(existingChunk).index === chunk.index
-                  )) {
-                    return [...prev, JSON.stringify(chunk)];
-                  }
-                  return prev;
-                });
-                setError(null);
-              } catch (error) {
-                console.error('解析错误:', error);
-                setError('二维码内容解析失败');
-              }
-            }}
-          />
-          <button 
-            onClick={reconstructFile}
-            className="w-full py-3 bg-gradient-to-r from-green-500 to-teal-500 text-white rounded-lg 
-            hover:from-green-600 hover:to-teal-600 transition-all duration-300 
-            transform hover:scale-[1.02]"
-          >
-            重组文件
-          </button>
-        </div>
+            {chunks.length > 0 && (
+              <div className="chunk-navigation">
+                <button onClick={prevChunk} className="button">上一块</button>
+                <span className="chunk-info">
+                  {currentChunkIndex + 1} / {chunks.length}
+                </span>
+                <button onClick={nextChunk} className="button">下一块</button>
+              </div>
+            )}
+          </div>
+        </main>
       </div>
     </GradientBackground>
   );
