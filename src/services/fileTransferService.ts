@@ -146,7 +146,6 @@ export class FileTransferService {
   private static concatenateArrayBuffers(buffers: ArrayBuffer[]): ArrayBuffer {
     const totalLength = buffers.reduce((acc, buffer) => acc + buffer.byteLength, 0);
     const result = new Uint8Array(totalLength);
-    
     let offset = 0;
     for (const buffer of buffers) {
       result.set(new Uint8Array(buffer), offset);
